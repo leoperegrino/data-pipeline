@@ -4,7 +4,7 @@
 
 1. [Data Pipeline Infrastructure](./data-pipeline/)
 
-2. [SQL Analytics](./analytics/)
+2. [SQL Analytics](./sql/)
 
 ## Develop
 
