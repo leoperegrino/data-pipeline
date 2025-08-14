@@ -51,6 +51,29 @@ module "glue" {
 }
 ```
 
+## Athena Module
+
+This module provisions the Athena resources.
+
+The Athena resources are:
+1. Athena Workgroup
+1. Athena Named Queries
+1. S3 bucket for storing query results
+
+The module has one variable that should be passed from the glue module which is
+the glue database.
+
+
+### Usage
+
+```hcl
+module "athena" {
+  source = "/path/to/athena_module"
+
+  glue_database = module.glue.glue_database
+}
+```
+
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
 

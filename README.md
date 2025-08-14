@@ -14,11 +14,11 @@
 pre-commit install
 ```
 
-# SQL Analytics
+## SQL Analytics
 
 The data used for this proof of concept was generated just for the purpose of demonstration.
 
-## channel performance
+### channel performance
 
 <details>
   <summary>Query</summary>
@@ -96,7 +96,7 @@ youtube,20800.0,3,0.18,'-98.91
 ```
 
 
-## rewards analysis
+### rewards analysis
 
 <details>
   <summary>Query</summary>
@@ -162,7 +162,7 @@ user_id,acquisition_channel,signup_date,total_rewards,total_revenue,transaction_
 USR_001,facebook,2024-01-01 08:18:45,0.0049,244.9,10,49979.59,0.0
 ```
 
-## User lifetime value
+### User lifetime value
 
 <details>
   <summary>Query</summary>
