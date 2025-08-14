@@ -220,6 +220,14 @@ Project: main
 
  Name                                              Monthly Qty  Unit                    Monthly Cost   
                                                                                                        
+ module.athena.aws_s3_bucket.athena_results                                                            
+ └─ Standard                                                                                           
+    ├─ Storage                               Monthly cost depends on usage: $0.0405 per GB             
+    ├─ PUT, COPY, POST, LIST requests        Monthly cost depends on usage: $0.007 per 1k requests     
+    ├─ GET, SELECT, and all other requests   Monthly cost depends on usage: $0.00056 per 1k requests   
+    ├─ Select data scanned                   Monthly cost depends on usage: $0.004 per GB              
+    └─ Select data returned                  Monthly cost depends on usage: $0.0014 per GB             
+                                                                                                       
  module.glue.aws_glue_catalog_database.this                                                            
  ├─ Storage                                  Monthly cost depends on usage: $1.00 per 100k objects     
  └─ Requests                                 Monthly cost depends on usage: $1.00 per 1M requests      
@@ -248,9 +256,10 @@ Project: main
 *Usage costs can be estimated by updating Infracost Cloud settings, see docs for other options.
 
 ──────────────────────────────────
-23 cloud resources were detected:
-∙ 4 were estimated
-∙ 19 were free
+29 cloud resources were detected:
+∙ 5 were estimated
+∙ 20 were free
+∙ 4 are not supported yet, rerun with --show-skipped to see details
 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
 ┃ Project                                            ┃ Baseline cost ┃ Usage cost* ┃ Total cost ┃
@@ -272,6 +281,278 @@ plan. Resource actions are indicated with the following symbols:
   + create
 
 Terraform will perform the following actions:
+
+  # module.athena.aws_athena_named_query.sql["channel_performance.sql"] will be created
+  + resource "aws_athena_named_query" "sql" {
+      + database  = "data-pipeline-infra"
+      + id        = (known after apply)
+      + name      = "channel_performance.sql"
+      + query     = <<-EOT
+            WITH channel_spend AS (
+                SELECT
+                    channel,
+                    SUM(spend) AS total_spend,
+                    SUM(installs) AS total_installs
+                FROM marketing_spend
+                GROUP BY channel
+            ),
+            
+            channel_revenue AS (
+                SELECT
+                    u.channel,
+                    SUM(r.revenue) AS total_revenue
+                FROM users AS u
+                LEFT JOIN revenue_and_rewards AS r ON u.user_id = r.user_id
+                WHERE u.channel IS NOT NULL
+                GROUP BY u.channel
+            ),
+            
+            channel_conversions AS (
+                SELECT
+                    channel,
+                    COUNT(DISTINCT user_id) AS conversions
+                FROM user_touchpoints
+                WHERE conversion = TRUE
+                GROUP BY channel
+            )
+            
+            SELECT
+                cs.channel,
+                cs.total_spend,
+                COALESCE(cc.conversions, 0) AS conversions,
+                CASE
+                    WHEN cs.total_installs > 0
+                        THEN
+                            ROUND(
+                                CAST(COALESCE(cc.conversions, 0) AS DOUBLE)
+                                / CAST(cs.total_installs AS DOUBLE)
+                                * 100,
+                                2
+                            )
+                    ELSE 0
+                END AS conversion_rate,
+                CASE
+                    WHEN
+                        cs.total_spend > 0
+                        THEN
+                            ROUND(
+                                (COALESCE(cr.total_revenue, 0) / cs.total_spend - 1) * 100,
+                                2
+                            )
+                    ELSE 0
+                END AS roi_percentage
+            FROM channel_spend AS cs
+            LEFT JOIN channel_conversions AS cc ON cs.channel = cc.channel
+            LEFT JOIN channel_revenue AS cr ON cs.channel = cr.channel
+            ORDER BY roi_percentage DESC;
+        EOT
+      + workgroup = (known after apply)
+    }
+
+  # module.athena.aws_athena_named_query.sql["rewards_analysis.sql"] will be created
+  + resource "aws_athena_named_query" "sql" {
+      + database  = "data-pipeline-infra"
+      + id        = (known after apply)
+      + name      = "rewards_analysis.sql"
+      + query     = <<-EOT
+            WITH user_rewards_summary AS (
+                SELECT
+                    user_id,
+                    SUM(reward_to_user) AS total_rewards,
+                    SUM(revenue) AS total_revenue,
+                    COUNT(*) AS transaction_count
+                FROM revenue_and_rewards
+                GROUP BY user_id
+            ),
+            
+            rewards_percentiles AS (
+                SELECT
+                    user_id,
+                    total_rewards,
+                    total_revenue,
+                    transaction_count,
+                    PERCENT_RANK() OVER (
+                        ORDER BY total_rewards
+                    ) AS rewards_percentile
+                FROM user_rewards_summary
+            ),
+            
+            top_rewards_users AS (
+                SELECT
+                    rp.user_id,
+                    rp.total_rewards,
+                    rp.total_revenue,
+                    rp.transaction_count,
+                    u.channel AS acquisition_channel,
+                    u.created_at AS signup_date
+                FROM rewards_percentiles AS rp
+                INNER JOIN users AS u ON rp.user_id = u.user_id
+                WHERE rp.rewards_percentile >= 0.9
+            )
+            
+            SELECT
+                user_id,
+                acquisition_channel,
+                signup_date,
+                total_rewards,
+                total_revenue,
+                transaction_count,
+                ROUND(total_revenue / NULLIF(total_rewards, 0), 2)
+                    AS revenue_per_reward_unit,
+                CASE
+                    WHEN total_revenue > 0
+                        THEN ROUND((total_rewards / total_revenue) * 100, 2)
+                    ELSE 0
+                END AS reward_rate_percentage
+            FROM top_rewards_users
+            ORDER BY total_rewards DESC;
+        EOT
+      + workgroup = (known after apply)
+    }
+
+  # module.athena.aws_athena_named_query.sql["user_lifetime_value.sql"] will be created
+  + resource "aws_athena_named_query" "sql" {
+      + database  = "data-pipeline-infra"
+      + id        = (known after apply)
+      + name      = "user_lifetime_value.sql"
+      + query     = <<-EOT
+            WITH recent_users AS (
+                SELECT
+                    user_id,
+                    channel,
+                    DATE(FROM_ISO8601_TIMESTAMP(created_at)) AS signup_date
+                FROM users
+                WHERE
+                    DATE(FROM_ISO8601_TIMESTAMP(created_at))
+                    >= DATE_ADD('day', -90, CURRENT_DATE)
+                    AND channel IS NOT NULL
+            ),
+            
+            user_30day_revenue AS (
+                SELECT
+                    ru.user_id,
+                    ru.channel,
+                    ru.signup_date,
+                    SUM(CASE
+                        WHEN
+                            DATE(
+                                FROM_ISO8601_TIMESTAMP(r.date)
+                            ) BETWEEN ru.signup_date AND DATE_ADD(
+                                'day', 30, ru.signup_date
+                            )
+                            THEN r.revenue
+                        ELSE 0
+                    END) AS ltv_30day
+                FROM recent_users AS ru
+                LEFT JOIN revenue_and_rewards AS r ON ru.user_id = r.user_id
+                GROUP BY ru.user_id, ru.channel, ru.signup_date
+            )
+            
+            SELECT
+                channel,
+                COUNT(DISTINCT user_id) AS users_acquired,
+                ROUND(AVG(ltv_30day), 2) AS avg_30day_ltv,
+                ROUND(SUM(ltv_30day), 2) AS total_30day_revenue,
+                ROUND(APPROX_PERCENTILE(ltv_30day, 0.5), 2) AS median_30day_ltv
+            FROM user_30day_revenue
+            GROUP BY channel
+            ORDER BY avg_30day_ltv DESC;
+        EOT
+      + workgroup = (known after apply)
+    }
+
+  # module.athena.aws_athena_workgroup.data_pipeline will be created
+  + resource "aws_athena_workgroup" "data_pipeline" {
+      + arn           = (known after apply)
+      + force_destroy = true
+      + id            = (known after apply)
+      + name          = "data_pipeline"
+      + state         = "ENABLED"
+      + tags_all      = {
+          + "ManagedBy" = "terraform"
+          + "Prefix"    = "data-pipeline-infra-default"
+          + "Project"   = "data-pipeline-infra"
+          + "Workspace" = "default"
+        }
+
+      + configuration {
+          + enforce_workgroup_configuration    = true
+          + publish_cloudwatch_metrics_enabled = true
+          + requester_pays_enabled             = false
+
+          + result_configuration {
+              + output_location = (known after apply)
+
+              + encryption_configuration {
+                  + encryption_option = "SSE_S3"
+                }
+            }
+        }
+    }
+
+  # module.athena.aws_s3_bucket.athena_results will be created
+  + resource "aws_s3_bucket" "athena_results" {
+      + acceleration_status         = (known after apply)
+      + acl                         = (known after apply)
+      + arn                         = (known after apply)
+      + bucket                      = (known after apply)
+      + bucket_domain_name          = (known after apply)
+      + bucket_prefix               = (known after apply)
+      + bucket_regional_domain_name = (known after apply)
+      + force_destroy               = true
+      + hosted_zone_id              = (known after apply)
+      + id                          = (known after apply)
+      + object_lock_enabled         = (known after apply)
+      + policy                      = (known after apply)
+      + region                      = (known after apply)
+      + request_payer               = (known after apply)
+      + tags_all                    = {
+          + "ManagedBy" = "terraform"
+          + "Prefix"    = "data-pipeline-infra-default"
+          + "Project"   = "data-pipeline-infra"
+          + "Workspace" = "default"
+        }
+      + website_domain              = (known after apply)
+      + website_endpoint            = (known after apply)
+
+      + cors_rule (known after apply)
+
+      + grant (known after apply)
+
+      + lifecycle_rule (known after apply)
+
+      + logging (known after apply)
+
+      + object_lock_configuration (known after apply)
+
+      + replication_configuration (known after apply)
+
+      + server_side_encryption_configuration (known after apply)
+
+      + versioning (known after apply)
+
+      + website (known after apply)
+    }
+
+  # module.athena.aws_s3_bucket_public_access_block.athena_results will be created
+  + resource "aws_s3_bucket_public_access_block" "athena_results" {
+      + block_public_acls       = true
+      + block_public_policy     = true
+      + bucket                  = (known after apply)
+      + id                      = (known after apply)
+      + ignore_public_acls      = true
+      + restrict_public_buckets = true
+    }
+
+  # module.athena.random_id.athena_results will be created
+  + resource "random_id" "athena_results" {
+      + b64_std     = (known after apply)
+      + b64_url     = (known after apply)
+      + byte_length = 8
+      + dec         = (known after apply)
+      + hex         = (known after apply)
+      + id          = (known after apply)
+    }
 
   # module.glue.aws_glue_catalog_database.this will be created
   + resource "aws_glue_catalog_database" "this" {
@@ -955,7 +1236,7 @@ Terraform will perform the following actions:
       + id          = (known after apply)
     }
 
-Plan: 25 to add, 0 to change, 0 to destroy.
+Plan: 32 to add, 0 to change, 0 to destroy.
 
 Changes to Outputs:
   + processed_bucket = (known after apply)
