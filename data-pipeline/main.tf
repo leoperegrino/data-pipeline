@@ -43,3 +43,9 @@ module "glue" {
   raw_bucket       = module.storage.raw_bucket
   processed_bucket = module.storage.processed_bucket
 }
+
+module "athena" {
+  source = "./athena"
+
+  glue_database = module.glue.glue_database
+}

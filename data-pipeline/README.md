@@ -68,6 +68,7 @@ No providers.
 
 | Name | Source | Version |
 |------|--------|---------|
+| <a name="module_athena"></a> [athena](#module\_athena) | ./athena | n/a |
 | <a name="module_glue"></a> [glue](#module\_glue) | ./glue | n/a |
 | <a name="module_storage"></a> [storage](#module\_storage) | ./storage | n/a |
 

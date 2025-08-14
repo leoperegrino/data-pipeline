@@ -42,5 +42,7 @@ No modules.
 
 ## Outputs
 
-No outputs.
+| Name | Description |
+|------|-------------|
+| <a name="output_glue_database"></a> [glue\_database](#output\_glue\_database) | Database to which the queries belong |
 <!-- END_TF_DOCS -->

@@ -19,4 +19,3 @@ repos:
   hooks:
   - id: sqlfluff-fix
     args: [--dialect, athena]
-    files: ^sql/.*\.sql
