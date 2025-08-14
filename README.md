@@ -1,10 +1,6 @@
-# AWS Terraform Data Pipeline POCs
+# AWS Terraform Data Pipeline
 
-## POCs
-
-1. [Data Pipeline Infrastructure](./data-pipeline/)
-
-2. [SQL Analytics](./sql/)
+The data used for this proof of concept was generated just for the purpose of demonstration.
 
 ## Develop
 
@@ -15,8 +11,6 @@ pre-commit install
 ```
 
 ## SQL Analytics
-
-The data used for this proof of concept was generated just for the purpose of demonstration.
 
 ### channel performance
 
