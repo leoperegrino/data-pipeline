@@ -13,6 +13,8 @@ resource "aws_athena_workgroup" "data_pipeline" {
       }
     }
   }
+
+  force_destroy = true
 }
 
 locals {
